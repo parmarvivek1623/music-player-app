@@ -2,6 +2,7 @@ package com.music.myapplication;
 
 import android.Manifest;
 import android.content.ContentResolver;
+import android.content.ContentUris;
 import android.content.pm.PackageManager;
 import android.database.Cursor;
 import android.media.MediaPlayer;
@@ -14,11 +15,15 @@ import android.util.Log;
 import android.widget.ImageButton;
 import android.widget.SeekBar;
 import android.widget.TextView;
+import android.widget.Toast;
 
+import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
+
+import com.music.model.Song;
 
 import java.util.ArrayList;
 import java.util.Locale;
@@ -30,7 +35,7 @@ public class MainActivity extends AppCompatActivity {
     private ImageButton btnPlayPause;
     private SeekBar musicSeekBar;
 
-    private final ArrayList<String> musicList = new ArrayList<>();
+    private final ArrayList<Song> musicList = new ArrayList<>();
     private MediaPlayer mediaPlayer;
     private int currentIndex = 0;
 
@@ -38,6 +43,7 @@ public class MainActivity extends AppCompatActivity {
     private Runnable updateSeekBar;
 
     private static final String TAG = "MusicPlayerApp";
+    private static final int REQUEST_PERMISSION_CODE = 1;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -46,8 +52,8 @@ public class MainActivity extends AppCompatActivity {
 
         musicRecyclerView = findViewById(R.id.musicRecyclerView);
         currentSongTitle = findViewById(R.id.currentSongTitle);
-        startTime = findViewById(R.id.startTime);  // Ensure present in layout
-        endTime = findViewById(R.id.endTime);      // Ensure present in layout
+        startTime = findViewById(R.id.startTime);
+        endTime = findViewById(R.id.endTime);
         btnPlayPause = findViewById(R.id.btnPlayPause);
         ImageButton btnNext = findViewById(R.id.btnNext);
         ImageButton btnPrevious = findViewById(R.id.btnPrevious);
@@ -72,12 +78,10 @@ public class MainActivity extends AppCompatActivity {
             }
 
             @Override
-            public void onStartTrackingTouch(SeekBar seekBar) {
-            }
+            public void onStartTrackingTouch(SeekBar seekBar) {}
 
             @Override
-            public void onStopTrackingTouch(SeekBar seekBar) {
-            }
+            public void onStopTrackingTouch(SeekBar seekBar) {}
         });
     }
 
@@ -87,47 +91,59 @@ public class MainActivity extends AppCompatActivity {
         Uri collection = MediaStore.Audio.Media.EXTERNAL_CONTENT_URI;
 
         String[] projection = {
-                MediaStore.Audio.Media.DATA
+                MediaStore.Audio.Media._ID,
+                MediaStore.Audio.Media.TITLE,
+                MediaStore.Audio.Media.DURATION
         };
+
         String selection = MediaStore.Audio.Media.IS_MUSIC + " != 0";
+
         Cursor cursor = contentResolver.query(collection, projection, selection, null, null);
 
         if (cursor != null && cursor.moveToFirst()) {
-            int dataColumn = cursor.getColumnIndex(MediaStore.Audio.Media.DATA);
+            int idColumn = cursor.getColumnIndex(MediaStore.Audio.Media._ID);
+            int titleColumn = cursor.getColumnIndex(MediaStore.Audio.Media.TITLE);
+            int durationColumn = cursor.getColumnIndex(MediaStore.Audio.Media.DURATION);
+
             do {
-                String path = cursor.getString(dataColumn);
-                if (path.endsWith(".mp3") || path.endsWith(".wav") || path.endsWith(".m4a")) {
-                    musicList.add(path);
-                }
+                long id = cursor.getLong(idColumn);
+                String title = cursor.getString(titleColumn);
+                long duration = cursor.getLong(durationColumn);
+                musicList.add(new Song(id, title, duration));
             } while (cursor.moveToNext());
             cursor.close();
         }
 
+        if (musicList.isEmpty()) {
+            Toast.makeText(this, "No music files found!", Toast.LENGTH_SHORT).show();
+            currentSongTitle.setText(getString(R.string.no_song_playing));
+            btnPlayPause.setEnabled(false);
+        } else {
+            btnPlayPause.setEnabled(true);
+        }
+
         musicRecyclerView.setLayoutManager(new LinearLayoutManager(this));
-        MusicAdapter adapter = new MusicAdapter(musicList, this::playMusic);
+        MusicAdapter adapter = new MusicAdapter(this, musicList, this::playMusic);
         musicRecyclerView.setAdapter(adapter);
     }
 
     private void playMusic(int index) {
-        if (musicList.size() == 0) return;
+        if (musicList.isEmpty()) return;
 
         currentIndex = index;
-        String path = musicList.get(index);
-        String name = path.substring(path.lastIndexOf("/") + 1);
-        currentSongTitle.setText(name);
+        Song song = musicList.get(index);
+        currentSongTitle.setText(song.getTitle());
 
-        if (mediaPlayer != null) {
-            handler.removeCallbacks(updateSeekBar);
-            mediaPlayer.stop();
-            mediaPlayer.release();
-        }
+        releaseMediaPlayer();
+
+        Uri contentUri = ContentUris.withAppendedId(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, song.getId());
 
         mediaPlayer = new MediaPlayer();
         try {
-            mediaPlayer.setDataSource(path);
+            mediaPlayer.setDataSource(this, contentUri);
             mediaPlayer.prepare();
             mediaPlayer.start();
-            btnPlayPause.setImageResource(R.drawable.ic_pause);
+            setPlayPauseIcon();  // <- Reliable icon update
 
             musicSeekBar.setMax(mediaPlayer.getDuration());
             endTime.setText(formatTime(mediaPlayer.getDuration()));
@@ -139,7 +155,6 @@ public class MainActivity extends AppCompatActivity {
                         int currentPos = mediaPlayer.getCurrentPosition();
                         musicSeekBar.setProgress(currentPos);
                         startTime.setText(formatTime(currentPos));
-                        handler.removeCallbacks(this);
                         handler.postDelayed(this, 500);
                     }
                 }
@@ -152,32 +167,44 @@ public class MainActivity extends AppCompatActivity {
             });
 
         } catch (Exception e) {
-            Log.e(TAG, "Error playing music: " + e.getMessage(), e);  // Robust logging
+            Log.e(TAG, "Error playing music: " + e.getMessage(), e);
         }
     }
+
+
+    private void setPlayPauseIcon() {
+        if (mediaPlayer != null && mediaPlayer.isPlaying()) {
+            btnPlayPause.setImageResource(R.drawable.ic_pause);   // Show pause icon when playing
+        } else {
+            btnPlayPause.setImageResource(R.drawable.ic_play);    // Show play icon when paused
+        }
+    }
+
 
     private void togglePlayPause() {
-        if (mediaPlayer != null && mediaPlayer.isPlaying()) {
-            mediaPlayer.pause();
-            handler.removeCallbacks(updateSeekBar);
-            btnPlayPause.setImageResource(R.drawable.ic_play);
-        } else if (mediaPlayer != null) {
-            mediaPlayer.start();
-            handler.removeCallbacks(updateSeekBar);
-            handler.post(updateSeekBar);
-            btnPlayPause.setImageResource(R.drawable.ic_pause);
+        if (mediaPlayer != null) {
+            if (mediaPlayer.isPlaying()) {
+                mediaPlayer.pause();
+                handler.removeCallbacks(updateSeekBar);
+
+            } else {
+                mediaPlayer.start();
+                handler.post(updateSeekBar);
+            }
+            setPlayPauseIcon();  // <- Consistent button update
         }
     }
 
+
     private void playNext() {
-        if (mediaPlayer == null || musicList.size() == 0) return;
+        if (musicList.isEmpty()) return;
         if (currentIndex < musicList.size() - 1) {
             playMusic(++currentIndex);
         }
     }
 
     private void playPrevious() {
-        if (mediaPlayer == null || musicList.size() == 0) return;
+        if (musicList.isEmpty()) return;
         if (currentIndex > 0) {
             playMusic(--currentIndex);
         }
@@ -194,7 +221,6 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void requestPermissions() {
-        int REQUEST_PERMISSION_CODE = 1;
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             ActivityCompat.requestPermissions(this,
                     new String[]{Manifest.permission.READ_MEDIA_AUDIO}, REQUEST_PERMISSION_CODE);
@@ -205,9 +231,28 @@ public class MainActivity extends AppCompatActivity {
     }
 
     @Override
+    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == REQUEST_PERMISSION_CODE) {
+            if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                loadMusicFiles();
+            } else {
+                Toast.makeText(this, "Permission denied. Cannot load music.", Toast.LENGTH_SHORT).show();
+            }
+        }
+    }
+
+    @Override
     protected void onDestroy() {
         super.onDestroy();
+        releaseMediaPlayer();
+    }
+
+    private void releaseMediaPlayer() {
         if (mediaPlayer != null) {
+            if (mediaPlayer.isPlaying()) {
+                mediaPlayer.stop();
+            }
             handler.removeCallbacks(updateSeekBar);
             mediaPlayer.release();
             mediaPlayer = null;
@@ -220,5 +265,3 @@ public class MainActivity extends AppCompatActivity {
         return String.format(Locale.getDefault(), "%02d:%02d", minutes, seconds);
     }
 }
-
-

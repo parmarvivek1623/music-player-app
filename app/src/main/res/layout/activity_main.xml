@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools"
-    android:background="#2E2E31"
+    android:background="#1B5E20"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:padding="16dp">
@@ -99,7 +99,8 @@
                 android:id="@+id/btnPrevious"
                 android:layout_width="50dp"
                 android:layout_height="50dp"
-                android:background="@drawable/ic_previous"
+                android:src="@drawable/ic_previous"
+                android:background="@android:color/transparent"
                 android:contentDescription="@string/UI_previous"
                 tools:ignore="TouchTargetSizeCheck,ImageContrastCheck" />
 
@@ -109,7 +110,8 @@
                 android:layout_height="50dp"
                 android:layout_marginStart="50dp"
                 android:layout_marginEnd="50dp"
-                android:background="@drawable/ic_play"
+                android:src="@drawable/ic_play"
+                android:background="@android:color/transparent"
                 android:contentDescription="@string/UI_play_pause"
                 tools:ignore="TouchTargetSizeCheck" />
 
@@ -117,7 +119,8 @@
                 android:id="@+id/btnNext"
                 android:layout_width="50dp"
                 android:layout_height="50dp"
-                android:background="@drawable/ic_next"
+                android:src="@drawable/ic_next"
+                android:background="@android:color/transparent"
                 android:contentDescription="@string/UI_next"
                 tools:ignore="TouchTargetSizeCheck,ImageContrastCheck" />
         </LinearLayout>
